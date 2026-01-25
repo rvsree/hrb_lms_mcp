@@ -150,6 +150,50 @@ CROSS JOIN hrb_emp_lms.leave_types lt
 WHERE lt.code IN ('PTO', 'SICK')
 ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING;
 
+-- Insert Leave Balances for 2026 (current year)
+INSERT INTO hrb_emp_lms.leave_balances (employee_id, leave_type_id, accrued, used, year) 
+SELECT 
+    e.id,
+    lt.id,
+    CASE 
+        WHEN lt.code = 'PTO' THEN 
+            CASE 
+                WHEN e.hire_date < '2024-01-01' THEN 22.0
+                WHEN e.hire_date < '2024-07-01' THEN 17.0
+                WHEN e.hire_date < '2025-01-01' THEN 12.0
+                WHEN e.hire_date < '2026-01-01' THEN 7.0
+                ELSE 3.0
+            END
+        WHEN lt.code = 'SICK' THEN 
+            CASE 
+                WHEN e.hire_date < '2024-01-01' THEN 12.0
+                WHEN e.hire_date < '2024-07-01' THEN 9.0
+                WHEN e.hire_date < '2025-01-01' THEN 6.0
+                WHEN e.hire_date < '2026-01-01' THEN 3.0
+                ELSE 1.5
+            END
+        ELSE 0
+    END as accrued,
+    CASE 
+        WHEN lt.code = 'PTO' THEN 
+            CASE 
+                WHEN e.id % 10 = 0 THEN 2.0
+                WHEN e.id % 10 < 3 THEN 1.0
+                ELSE 0.5
+            END
+        WHEN lt.code = 'SICK' THEN 
+            CASE 
+                WHEN e.id % 10 = 0 THEN 1.0
+                ELSE 0.0
+            END
+        ELSE 0
+    END as used,
+    2026
+FROM hrb_emp_lms.employees e
+CROSS JOIN hrb_emp_lms.leave_types lt
+WHERE lt.code IN ('PTO', 'SICK')
+ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING;
+
 -- Insert Leave Requests (using subqueries for reliability)
 -- Approved requests
 INSERT INTO hrb_emp_lms.leave_requests (employee_id, leave_type_id, start_date, end_date, days, reason, status, approver_id, approved_at) 

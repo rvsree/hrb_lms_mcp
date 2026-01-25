@@ -2,7 +2,7 @@
 
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, desc, extract
 from datetime import datetime, date
 from decimal import Decimal
 from src.app.models.models import (
@@ -139,6 +139,7 @@ class LeaveRequestService:
     def get_leave_history(
         self,
         employee_id: str,
+        year: Optional[int] = None,
         status: Optional[str] = None,
         limit: Optional[int] = None,
         offset: Optional[int] = None
@@ -148,6 +149,7 @@ class LeaveRequestService:
         
         Args:
             employee_id: Employee ID
+            year: Year filter (optional, filters by start_date year)
             status: Status filter (optional)
             limit: Maximum number of results
             offset: Offset for pagination
@@ -168,12 +170,27 @@ class LeaveRequestService:
         # Build query
         query = self.db.query(LeaveRequest).filter(LeaveRequest.employee_id == employee.id)
         
+        # Filter by year if provided
+        if year is not None:
+            query = query.filter(extract('year', LeaveRequest.start_date) == year)
+        
+        # Filter by status if provided (handle 'all' as no filter)
         if status:
-            try:
-                status_enum = LeaveRequestStatus[status.upper()]
-                query = query.filter(LeaveRequest.status == status_enum)
-            except KeyError:
-                raise BusinessException("INVALID_STATUS", f"Invalid status: {status}")
+            status_upper = status.upper().strip()
+            # Handle 'all' as a special case meaning no status filter
+            if status_upper == 'ALL':
+                # No status filter applied
+                pass
+            else:
+                try:
+                    status_enum = LeaveRequestStatus[status_upper]
+                    query = query.filter(LeaveRequest.status == status_enum)
+                except KeyError:
+                    valid_statuses = [s.name for s in LeaveRequestStatus]
+                    raise BusinessException(
+                        "INVALID_STATUS",
+                        f"Invalid status: {status}. Valid values are: {', '.join(valid_statuses)}, or 'all' (no filter)"
+                    )
         
         # Get total count
         total = query.count()
