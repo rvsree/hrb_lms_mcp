@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Status:** Production  
-**Technology Stack:** Java Spring Boot, PostgreSQL, MCP Protocol (JSON-RPC 2.0)
+**Technology Stack:** Python FastMCP, PostgreSQL, MCP Protocol (JSON-RPC 2.0 over HTTP)
 
 ---
 
@@ -78,12 +78,13 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 │  - Python FastAPI Application                               │
 │  - MCP Client Implementation                                │
 └──────────────────────┬──────────────────────────────────────┘
-                       │ HTTP/REST (JSON-RPC 2.0)
-                       │ POST /api/hrb/lms/mcp
+                       │ HTTP (JSON-RPC 2.0)
+                       │ POST /mcp (FastMCP streamable-http)
 ┌──────────────────────▼──────────────────────────────────────┐
 │              MCP Server (hrb_lms_mcp)                       │
-│  - Java Spring Boot Application                             │
-│  - MCP Protocol Handler                                     │
+│  - Python FastMCP Server (Pure FastMCP)                     │
+│  - FastMCP streamable-http transport                        │
+│  - MCP Tools (@mcp.tool() decorator)                        │
 │  - Tool Execution Engine                                    │
 └──────────────────────┬──────────────────────────────────────┘
                        │
@@ -98,24 +99,32 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 
 ### Key Components
 
-1. **MCP Protocol Handler** (`/api/hrb/lms/mcp`)
-   - Receives JSON-RPC 2.0 requests
-   - Routes to appropriate tool handlers
-   - Returns JSON-RPC 2.0 responses
+1. **FastMCP Server** (`/mcp` - streamable-http endpoint)
+   - Pure FastMCP implementation (no FastAPI wrapper)
+   - Handles JSON-RPC 2.0 protocol automatically
+   - Stateless HTTP mode (no session ID required)
+   - JSON responses (not SSE streams)
 
-2. **Tool Implementations**
+2. **MCP Tools** (`src/app/api/controller/lms_mcp_tools.py`)
+   - All tools registered via `@mcp.tool()` decorator
    - `get_leave_balance`: Query leave balance from database
    - `get_leave_history`: Retrieve leave request history
    - `submit_leave_request`: Create new leave request
-   - `check_pending_approvals`: Query pending approvals
+   - `get_pending_approvals`: Query pending approvals
    - `create_hitl_request`: Create HITL escalation
+   - `get_hitl_status`: Get HITL request status
 
-3. **Data Layer**
+3. **Validation Models** (`src/app/models/`)
+   - Separate Pydantic models for each tool
+   - Type-safe argument validation
+   - Clear error messages
+
+4. **Data Layer**
    - **PostgreSQL**: Leave requests, balances, approvals
-   - **JPA/Hibernate**: ORM for database access
+   - **SQLAlchemy**: ORM for database access
    - **Repository Pattern**: Data access abstraction
 
-4. **External Services**
+5. **External Services**
    - **Database**: PostgreSQL (RDS in AWS)
    - **Notification Service**: (Optional) For HITL notifications
 
@@ -123,21 +132,23 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 
 1. **MCP Tool Call Flow**:
    ```
-   MCP Client → HTTP POST /api/hrb/lms/mcp → JSON-RPC Handler 
-   → Tool Router → Tool Implementation → Database Query 
-   → Result → JSON-RPC Response → MCP Client
+   MCP Client → HTTP POST /mcp (JSON-RPC 2.0) → FastMCP Router 
+   → @mcp.tool() Decorator → Tool Function → Pydantic Validation 
+   → Service Layer → Database Query → Result → JSON-RPC Response → MCP Client
    ```
 
 2. **Leave Balance Query**:
    ```
-   get_leave_balance(employee_id) → Repository → Database 
-   → Leave Balance Entity → DTO → JSON Response
+   get_leave_balance(employee_id, year) → GetLeaveBalanceArgs validation 
+   → LeaveBalanceService → SQLAlchemy Query → Database 
+   → Leave Balance Data → JSON Response
    ```
 
 3. **Leave Request Submission**:
    ```
-   submit_leave_request(args) → Validation → Business Logic 
-   → Database Insert → Approval Workflow Initiation → Response
+   submit_leave_request(args) → SubmitLeaveRequestArgs validation 
+   → LeaveRequestService → Business Logic 
+   → Database Insert → Approval Workflow Initiation → JSON Response
    ```
 
 ### PII and Security Considerations
@@ -201,10 +212,9 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 
 ### Prerequisites
 
-- Java 17+
-- Maven 3.9+
+- Python 3.9+
 - PostgreSQL 15+ (for local development)
-- Docker Desktop (optional, for containerized local setup)
+- pip (Python package manager)
 - Git
 
 ### Local Bootstrap
@@ -214,85 +224,87 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 cd C:\workspace\poc\2026\hrb_lms_mcp
 git clone <repository-url> .
 
-# 2. Build project
-mvn clean install
+# 2. Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# or
+source .venv/bin/activate  # Linux/Mac
 
-# 3. Set up database
-# Create PostgreSQL database: leave_management_db
-# Run migration scripts from src/main/resources/db/migration/
+# 3. Install dependencies
+pip install -r requirements.txt
 
-# 4. Configure application
-cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
-# Edit application-local.yml with database connection and API key
+# 4. Set up database
+# Create PostgreSQL database: hr_chatbot (or as configured)
+# Run SQL scripts from resources/db_scripts/
+psql -d hr_chatbot -f resources/db_scripts/database-setup.sql
+psql -d hr_chatbot -f resources/db_scripts/db-script-sample-data.sql
 
-# 5. Run application
-mvn spring-boot:run
+# 5. Configure environment
+# Copy .env.example to .env (if exists) or create .env file
+# Edit .env with database connection and API key
 
-# Or with specific profile
-mvn spring-boot:run -Dspring-boot.run.profiles=local
+# 6. Run application
+# Option 1: Direct Python
+python -m src.app.api.main
+
+# Option 2: Uvicorn (recommended)
+uvicorn src.app.api.main:app --host 127.0.0.1 --port 8190 --reload
 ```
 
 ### Configuration Files
 
-- **`application.yml`**: Base configuration
-- **`application-local.yml`**: Local development overrides
-- **`application-dev.yml`**: Development environment
-- **`application-staging.yml`**: Staging environment
-- **`application-prod.yml`**: Production environment
+- **`.env`**: Environment variables (database, API key, logging)
+- **`src/app/common/config/config.py`**: Settings management (Pydantic Settings)
 
 ### Tests
 
 ```bash
-# Run all tests
-mvn test
+# Run all tests (if test suite exists)
+pytest tests/ -v
 
-# Run unit tests only
-mvn test -Dtest=*Test
-
-# Run integration tests
-mvn verify -Dtest=*IT
-
-# Run with coverage
-mvn test jacoco:report
-```
-
-### Linting
-
-```bash
-# Format code (if using Spotless)
-mvn spotless:apply
-
-# Check code style
-mvn checkstyle:check
-
-# Static analysis
-mvn pmd:check
+# Run specific test file
+pytest tests/test_mcp_tools.py -v
 ```
 
 ### Run Locally
 
 ```bash
 # Development mode (with auto-reload)
-mvn spring-boot:run -Dspring-boot.run.profiles=local
+uvicorn src.app.api.main:app --host 127.0.0.1 --port 8190 --reload
 
 # Production mode
-java -jar target/hrb-lms-mcp-1.0.0.jar --spring.profiles.active=local
+uvicorn src.app.api.main:app --host 0.0.0.0 --port 8190
 
 # With specific port
-mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=8080
+uvicorn src.app.api.main:app --host 127.0.0.1 --port 8081
 ```
 
 ### Health Checks
 
 ```bash
-# Application health (Spring Boot Actuator)
-curl http://localhost:8080/actuator/health
-
-# MCP Protocol endpoint
-curl -X POST http://localhost:8080/api/hrb/lms/mcp \
+# MCP Protocol endpoint (tools/list)
+curl -X POST http://localhost:8190/mcp \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
   -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+
+# MCP Tool execution (tools/call)
+curl -X POST http://localhost:8190/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "get_leave_balance",
+      "arguments": {"employee_id": "EMP001", "year": 2026}
+    },
+    "id": 2
+  }'
 ```
 
 ---
@@ -301,45 +313,61 @@ curl -X POST http://localhost:8080/api/hrb/lms/mcp \
 
 ### MCP Protocol Overview
 
-**Protocol**: JSON-RPC 2.0 over HTTP/REST
+**Protocol**: JSON-RPC 2.0 over HTTP (FastMCP streamable-http transport)
 
-**Endpoint**: `POST /api/hrb/lms/mcp`
+**Endpoint**: `POST /mcp` (FastMCP streamable-http endpoint)
 
-**Authentication**: API key via `X-API-Key` header
+**Authentication**: API key via `X-API-Key` header (optional, configurable)
+
+**Transport**: FastMCP streamable-http (stateless mode, JSON responses)
 
 ### Available Tools
 
 1. **`get_leave_balance`**
-   - **Description**: Retrieve employee's current leave balance
-   - **Parameters**: `{"employee_id": "string"}`
-   - **Returns**: Leave balance by type (PTO, sick, FMLA, etc.)
+   - **Description**: Retrieve employee's leave balance for a specific year
+   - **Parameters**: `{"employee_id": "string", "year": int (optional, defaults to current year)}`
+   - **Returns**: Leave balance by type (PTO, sick, FMLA, etc.) for the specified year
+   - **Validation Model**: `GetLeaveBalanceArgs`
 
 2. **`get_leave_history`**
    - **Description**: Retrieve employee's leave request history
-   - **Parameters**: `{"employee_id": "string", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD"}`
+   - **Parameters**: `{"employee_id": "string", "year": int (optional), "status": "string" (optional), "limit": int (optional), "offset": int (optional)}`
    - **Returns**: List of leave requests with status, dates, type
+   - **Validation Model**: `GetLeaveHistoryArgs`
 
 3. **`submit_leave_request`**
    - **Description**: Submit new leave request
-   - **Parameters**: `{"employee_id": "string", "leave_type": "string", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "reason": "string"}`
+   - **Parameters**: `{"employee_id": "string", "leave_type": "string", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "reason": "string" (optional)}`
    - **Returns**: Request ID and status
+   - **Validation Model**: `SubmitLeaveRequestArgs`
 
-4. **`check_pending_approvals`**
-   - **Description**: Check pending leave approvals for manager
-   - **Parameters**: `{"employee_id": "string"}` (manager's employee_id)
+4. **`get_pending_approvals`**
+   - **Description**: Get pending leave approvals for a manager
+   - **Parameters**: `{"manager_id": "string"}`
    - **Returns**: List of pending approval requests
+   - **Validation Model**: `GetPendingApprovalsArgs`
 
 5. **`create_hitl_request`**
    - **Description**: Create human-in-the-loop escalation request
-   - **Parameters**: `{"request_type": "string", "query": "string", "employee_id": "string"}`
+   - **Parameters**: `{"request_type": "string", "query": "string", "employee_id": "string" (optional), "related_entity_type": "string" (optional), "related_entity_id": int (optional), "context": dict (optional), "priority": "string" (optional)}`
    - **Returns**: HITL request ID and status
+   - **Validation Model**: `CreateHITLRequestArgs`
+
+6. **`get_hitl_status`**
+   - **Description**: Get HITL request status
+   - **Parameters**: `{"hitl_request_id": int}`
+   - **Returns**: HITL request status and details
+   - **Validation Model**: `GetHITLStatusArgs`
 
 ### Tool Selection Strategy
 
+- Tools are automatically registered via `@mcp.tool()` decorator in `lms_mcp_tools.py`
+- FastMCP automatically generates tool schemas from function signatures and docstrings
 - Tools are exposed via MCP Protocol `tools/list` method
 - MCP client (`hrb_emp_assist`) discovers available tools at runtime
 - Tool descriptions guide LLM in tool selection
 - Tool execution via `tools/call` method
+- All tools use Pydantic validation models for type-safe argument validation
 
 ### Error Handling
 
@@ -409,42 +437,46 @@ For a new agent/developer joining the project:
 ### 1. Set Up Local Environment
 
 - [ ] Clone repository: `git clone <repo-url> C:\workspace\poc\2026\hrb_lms_mcp`
-- [ ] Install Java 17+ and Maven 3.9+
+- [ ] Install Python 3.9+ and pip
+- [ ] Create virtual environment: `python -m venv .venv`
+- [ ] Activate virtual environment: `.venv\Scripts\activate` (Windows) or `source .venv/bin/activate` (Linux/Mac)
+- [ ] Install dependencies: `pip install -r requirements.txt`
 - [ ] Set up local PostgreSQL database
-- [ ] Run `mvn clean install` to build project
-- [ ] Copy `application-local.yml.example` to `application-local.yml`
-- [ ] Configure database connection and API key in `application-local.yml`
-- [ ] Run database migrations: `mvn flyway:migrate` (if using Flyway)
+- [ ] Create `.env` file with database connection and API key
+- [ ] Run database setup scripts: `psql -d hr_chatbot -f resources/db_scripts/database-setup.sql`
+- [ ] Load sample data: `psql -d hr_chatbot -f resources/db_scripts/db-script-sample-data.sql`
 
 ### 2. Run Tests
 
-- [ ] Run `mvn test` - all tests should pass
+- [ ] Run `pytest tests/ -v` - all tests should pass (if test suite exists)
 - [ ] Review test output for any failures
-- [ ] Run `mvn test -Dtest=*Test` - unit tests
-- [ ] Run `mvn verify -Dtest=*IT` - integration tests
+- [ ] Run specific test file: `pytest tests/test_mcp_tools.py -v`
 
 ### 3. Perform Smoke Test
 
-- [ ] Start application: `mvn spring-boot:run -Dspring-boot.run.profiles=local`
-- [ ] Test health endpoint: `curl http://localhost:8080/actuator/health`
-- [ ] Test MCP Protocol endpoint:
+- [ ] Start application: `uvicorn src.app.api.main:app --host 127.0.0.1 --port 8190 --reload`
+- [ ] Test MCP Protocol endpoint (tools/list):
   ```bash
-  curl -X POST http://localhost:8080/api/hrb/lms/mcp \
+  curl -X POST http://localhost:8190/mcp \
     -H "Content-Type: application/json" \
     -H "X-API-Key: your-api-key" \
+    -H "Accept: application/json, text/event-stream" \
+    -H "mcp-protocol-version: 2024-11-05" \
     -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
   ```
-- [ ] Test tool execution:
+- [ ] Test tool execution (tools/call):
   ```bash
-  curl -X POST http://localhost:8080/api/hrb/lms/mcp \
+  curl -X POST http://localhost:8190/mcp \
     -H "Content-Type: application/json" \
     -H "X-API-Key: your-api-key" \
+    -H "Accept: application/json, text/event-stream" \
+    -H "mcp-protocol-version: 2024-11-05" \
     -d '{
       "jsonrpc": "2.0",
       "method": "tools/call",
       "params": {
         "name": "get_leave_balance",
-        "arguments": {"employee_id": "EMP001"}
+        "arguments": {"employee_id": "EMP001", "year": 2026}
       },
       "id": 2
     }'
@@ -453,20 +485,21 @@ For a new agent/developer joining the project:
 
 ### 4. Review Logs and Health Checks
 
-- [ ] Check application logs (console output or log files)
+- [ ] Check application logs (console output with colored logging)
 - [ ] Verify no errors in startup logs
-- [ ] Test health endpoints:
-  - [ ] `/actuator/health` - application health
-  - [ ] `/actuator/health/db` - database connectivity (if configured)
-- [ ] Review log structure and correlation IDs
+- [ ] Look for log message: "HRB Employee LMS MCP Server initialized with Pure FastMCP (streamable-http)"
+- [ ] Review log structure: `[MCP]` tags for MCP-related logs
+- [ ] Verify tool execution logs show correct parameters
 
 ### 5. Explore Codebase
 
-- [ ] Review `src/main/java/.../mcp/` - MCP protocol handler
-- [ ] Review `src/main/java/.../tools/` - tool implementations
-- [ ] Review `src/main/java/.../repository/` - data access layer
-- [ ] Review `src/main/resources/db/migration/` - database migrations
-- [ ] Review `src/test/` - test structure and examples
+- [ ] Review `src/app/api/main.py` - Pure FastMCP server entry point
+- [ ] Review `src/app/api/controller/lms_mcp_tools.py` - MCP tools with `@mcp.tool()` decorator
+- [ ] Review `src/app/models/` - Pydantic validation models for each tool
+- [ ] Review `src/app/services/` - Business logic layer (LeaveBalanceService, LeaveRequestService, HitlService)
+- [ ] Review `src/app/repos/` - Data access layer (SQLAlchemy)
+- [ ] Review `resources/db_scripts/` - Database setup and sample data scripts
+- [ ] Review `tests/` - Test structure and examples (if exists)
 
 ---
 
@@ -476,12 +509,13 @@ For a new agent/developer joining the project:
 
 1. **MCP Protocol**: Both projects use MCP (Model Context Protocol) for service communication
    - **Location**: 
-     - `hrb_lms_mcp` (C:\workspace\poc\2026\hrb_lms_mcp): Implements MCP server (Java Spring Boot) - **THIS PROJECT**
+     - `hrb_lms_mcp` (C:\workspace\poc\2026\hrb_lms_mcp): Implements MCP server (Python FastMCP) - **THIS PROJECT**
      - `hrb_emp_assist` (C:\workspace\poc\2026\hrb_emp_assist): Implements MCP client (Python)
-   - **Interface**: JSON-RPC 2.0 over HTTP/REST
-   - **Protocol Endpoint**: `/api/hrb/lms/mcp` (exposed by this server)
-   - **Communication**: `hrb_emp_assist` → HTTP POST → `hrb_lms_mcp` (this server)
-   - **Specification**: Follows MCP protocol specification
+   - **Interface**: JSON-RPC 2.0 over HTTP (FastMCP streamable-http transport)
+   - **Protocol Endpoint**: `/mcp` (FastMCP streamable-http endpoint exposed by this server)
+   - **Communication**: `hrb_emp_assist` → HTTP POST `/mcp` → `hrb_lms_mcp` (this server)
+   - **Specification**: Follows MCP protocol specification (FastMCP SDK)
+   - **Transport**: FastMCP streamable-http (stateless mode, JSON responses)
 
 2. **Common Libraries** (if any):
    - Shared utilities, logging, configuration patterns
@@ -545,6 +579,37 @@ For a new agent/developer joining the project:
 
 ---
 
-**Last Updated**: 2026-01-18  
+**Last Updated**: 2026-01-24  
 **Maintained By**: Development Team  
 **Questions**: Contact team lead or create issue in repository
+
+---
+
+## FastMCP Implementation Details
+
+### Pure FastMCP Architecture
+
+This project uses **Pure FastMCP** (no FastAPI wrapper):
+
+- **Entry Point**: `src/app/api/main.py` uses `mcp.streamable_http_app()` directly
+- **Tool Registration**: All tools use `@mcp.tool()` decorator in `lms_mcp_tools.py`
+- **Transport**: FastMCP streamable-http (stateless mode, JSON responses)
+- **Protocol**: JSON-RPC 2.0 handled automatically by FastMCP
+
+### Key Files
+
+- `src/app/api/main.py`: FastMCP server initialization and middleware
+- `src/app/api/controller/lms_mcp_tools.py`: All MCP tool implementations
+- `src/app/models/*_args.py`: Pydantic validation models for each tool
+- `src/app/services/`: Business logic layer
+- `src/app/repos/`: Database access layer
+
+### Dependencies
+
+- `mcp>=1.2.0`: FastMCP SDK
+- `uvicorn[standard]>=0.24.0`: ASGI server
+- `sqlalchemy>=2.0.23`: ORM
+- `pydantic>=2.5.0`: Validation
+- `psycopg2-binary>=2.9.9`: PostgreSQL driver
+
+**Note**: FastAPI and Starlette are NOT required for FastMCP (FastMCP uses Starlette internally).

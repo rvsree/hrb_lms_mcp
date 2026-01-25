@@ -22,19 +22,23 @@
 
 ### Key Features
 
-- ✅ **MCP Protocol Compliant**: Single JSON-RPC 2.0 endpoint (`POST /api/hrb/lms/mcp`)
+- ✅ **Pure FastMCP**: No FastAPI wrapper, uses `mcp.streamable_http_app()` directly
+- ✅ **MCP Protocol Compliant**: Single JSON-RPC 2.0 endpoint (`POST /mcp`)
 - ✅ **6 MCP Tools**: Leave balance, leave requests, approvals, and HITL operations
+- ✅ **Stateless HTTP**: No session ID required (`mcp.settings.stateless_http = True`)
+- ✅ **JSON Responses**: Returns JSON instead of SSE streams (`mcp.settings.json_response = True`)
 - ✅ **PostgreSQL Database**: Robust data persistence
-- ✅ **X-API-Key Authentication**: Secure API access
-- ✅ **No REST API Exposure**: Only MCP Protocol endpoint (as per design requirements)
+- ✅ **X-API-Key Authentication**: Secure API access (optional, configurable)
+- ✅ **Pydantic Validation**: Separate validation models for each tool
 - ✅ **Comprehensive Logging**: Colored console logs with structured information
 
 ### Technology Stack
 
-- **Framework**: FastAPI (Python 3.9+)
+- **Framework**: FastMCP (Python 3.9+) - Pure FastMCP, no FastAPI wrapper
 - **Database**: PostgreSQL with SQLAlchemy ORM
-- **Protocol**: JSON-RPC 2.0 (MCP Protocol)
-- **Authentication**: X-API-Key header
+- **Protocol**: JSON-RPC 2.0 (MCP Protocol) over HTTP (FastMCP streamable-http)
+- **Transport**: FastMCP streamable-http (stateless mode, JSON responses)
+- **Authentication**: X-API-Key header (optional, configurable)
 - **Logging**: Enhanced colored logging with bracket-based colorization
 
 ---
@@ -52,8 +56,9 @@ graph TB
     end
     
     subgraph "hrb_emp_lms (MCP Server)"
-        MCPEndpoint[POST /api/hrb/lms/mcp<br/>JSON-RPC 2.0]
-        MCPController[MCP Controller]
+        MCPEndpoint[POST /mcp<br/>FastMCP streamable-http]
+        FastMCP[FastMCP Router]
+        MCPTools[@mcp.tool() Tools]
         LeaveService[Leave Services]
         HitlService[HITL Service]
         DB[(PostgreSQL Database)]
@@ -62,9 +67,10 @@ graph TB
     LLM -->|Selects Tool| MCPAgent
     MCPAgent -->|Calls Tool| MCPClient
     MCPClient -->|JSON-RPC 2.0| MCPEndpoint
-    MCPEndpoint -->|Routes| MCPController
-    MCPController -->|Executes| LeaveService
-    MCPController -->|Executes| HitlService
+    MCPEndpoint -->|Routes| FastMCP
+    FastMCP -->|Executes| MCPTools
+    MCPTools -->|Calls| LeaveService
+    MCPTools -->|Calls| HitlService
     LeaveService -->|Queries| DB
     HitlService -->|Queries| DB
     
@@ -85,8 +91,10 @@ sequenceDiagram
     
     LLM->>Agent: Query: "What is my PTO balance?"
     Agent->>Client: call_tool("get_leave_balance", args)
-    Client->>Server: POST /api/hrb/lms/mcp<br/>{method: "tools/call", params: {...}}
-    Server->>Server: Validate API Key
+    Client->>Server: POST /mcp<br/>{method: "tools/call", params: {...}}
+    Server->>Server: FastMCP Router
+    Server->>Server: @mcp.tool() Decorator
+    Server->>Server: Pydantic Validation
     Server->>Server: Execute Tool
     Server->>DB: Query Leave Balance
     DB-->>Server: Return Data
@@ -101,9 +109,12 @@ sequenceDiagram
 ```mermaid
 graph LR
     subgraph "API Layer"
-        A[main.py]
-        B[health.py]
-        C[mcp_controller.py]
+        A[main.py<br/>Pure FastMCP]
+        B[lms_mcp_tools.py<br/>@mcp.tool() Tools]
+    end
+    
+    subgraph "Validation Layer"
+        C[Pydantic Models<br/>*_args.py]
     end
     
     subgraph "Service Layer"
@@ -118,10 +129,10 @@ graph LR
     end
     
     A --> B
-    A --> C
-    C --> D
-    C --> E
-    C --> F
+    B --> C
+    B --> D
+    B --> E
+    B --> F
     D --> G
     E --> G
     F --> G
@@ -136,8 +147,10 @@ graph LR
 
 **Single MCP Protocol Endpoint:**
 ```
-POST /api/hrb/lms/mcp
+POST /mcp
 ```
+
+**FastMCP streamable-http transport** (stateless mode, JSON responses)
 
 ### Authentication
 
@@ -991,8 +1004,10 @@ The project includes test scripts in the `tests/` directory:
 
 **List Tools:**
 ```bash
-curl -X POST http://localhost:8081/api/hrb/lms/mcp \
+curl -X POST http://localhost:8190/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
   -H "X-API-Key: default-api-key" \
   -d '{
     "jsonrpc": "2.0",
@@ -1003,8 +1018,10 @@ curl -X POST http://localhost:8081/api/hrb/lms/mcp \
 
 **Call Tool:**
 ```bash
-curl -X POST http://localhost:8081/api/hrb/lms/mcp \
+curl -X POST http://localhost:8190/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
   -H "X-API-Key: default-api-key" \
   -d '{
     "jsonrpc": "2.0",
@@ -1014,7 +1031,7 @@ curl -X POST http://localhost:8081/api/hrb/lms/mcp \
       "name": "get_leave_balance",
       "arguments": {
         "employee_id": "EMP001",
-        "year": 2025
+        "year": 2026
       }
     }
   }'
@@ -1120,9 +1137,40 @@ For issues, questions, or contributions, please refer to the project repository 
 
 ---
 
-**Last Updated**: January 2025  
+**Last Updated**: 2026-01-24  
 **Version**: 1.0.0  
-**Status**: Production Ready
+**Status**: Production Ready (Pure FastMCP Implementation)
+
+---
+
+## FastMCP Implementation (2026-01-24)
+
+### Architecture Changes
+
+- ✅ **Pure FastMCP**: Removed FastAPI wrapper, using `mcp.streamable_http_app()` directly
+- ✅ **Stateless HTTP**: `mcp.settings.stateless_http = True` (no session ID required)
+- ✅ **JSON Responses**: `mcp.settings.json_response = True` (not SSE streams)
+- ✅ **Tool Registration**: All tools use `@mcp.tool()` decorator
+- ✅ **Validation Models**: Extracted to separate Pydantic model files
+- ✅ **Removed Files**: `mcp_controller.py`, `lms_mcp_server.py` (no longer needed)
+
+### Key Files
+
+- `src/app/api/main.py`: Pure FastMCP server entry point
+- `src/app/api/controller/lms_mcp_tools.py`: All MCP tool implementations with `@mcp.tool()`
+- `src/app/models/*_args.py`: Pydantic validation models for each tool
+- `src/app/services/`: Business logic layer
+- `src/app/repos/`: Database access layer
+
+### Dependencies
+
+- `mcp>=1.2.0`: FastMCP SDK
+- `uvicorn[standard]>=0.24.0`: ASGI server
+- `sqlalchemy>=2.0.23`: ORM
+- `pydantic>=2.5.0`: Validation
+- `psycopg2-binary>=2.9.9`: PostgreSQL driver
+
+**Note**: FastAPI and Starlette are NOT required (FastMCP uses Starlette internally).
 
 
 
