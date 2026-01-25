@@ -1,15 +1,7 @@
-"""
-MCP Tools for Leave Management System.
-
-This module defines all MCP tools using FastMCP decorator pattern.
-Each tool is a standalone function with validation and proper error handling.
-"""
-
 from typing import Any, Dict, Optional
 from datetime import datetime
 from pydantic import ValidationError
-
-from mcp.server.fastmcp import FastMCP
+from src.app.api.mcp_server import mcp
 
 from src.app.repos.database import get_db
 from src.app.services.leave_balance_service import LeaveBalanceService
@@ -18,7 +10,6 @@ from src.app.services.hitl_service import HitlService
 from src.app.exceptions.exceptions import BusinessException, ResourceNotFoundException
 from src.app.common.config.app_logging import get_logger
 
-# Import validation models from existing files (for validation)
 from src.app.models.get_leave_balance_args import GetLeaveBalanceArgs
 from src.app.models.submit_leave_balance_args import SubmitLeaveRequestArgs
 from src.app.models.get_leave_history_args import GetLeaveHistoryArgs
@@ -27,13 +18,6 @@ from src.app.models.create_hitl_requests_args import CreateHITLRequestArgs
 from src.app.models.get_hitl_status_args import GetHITLStatusArgs
 
 logger = get_logger("lms_mcp_tools")
-
-# Initialize FastMCP server with stateless HTTP and JSON responses
-# Stateless mode: No session ID required, creates new transport per request
-# JSON responses: Returns JSON instead of SSE streams (simpler for HTTP clients)
-mcp = FastMCP("lms")
-mcp.settings.stateless_http = True
-mcp.settings.json_response = True
 
 
 # ============================================================================
