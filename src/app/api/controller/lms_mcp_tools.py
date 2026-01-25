@@ -1,6 +1,19 @@
+"""
+MCP Tools for Leave Management System.
+
+This module defines all MCP tools using FastMCP decorator pattern.
+Each tool is a standalone function with validation and proper error handling.
+
+Tools are registered with the FastMCP server instance imported from mcp_server.
+This follows modular architecture: server configuration is separate from tool definitions.
+"""
+
 from typing import Any, Dict, Optional
 from datetime import datetime
 from pydantic import ValidationError
+
+# Import the FastMCP server instance from mcp_server module
+# This ensures a single source of truth for server configuration
 from src.app.api.mcp_server import mcp
 
 from src.app.repos.database import get_db
@@ -10,6 +23,7 @@ from src.app.services.hitl_service import HitlService
 from src.app.exceptions.exceptions import BusinessException, ResourceNotFoundException
 from src.app.common.config.app_logging import get_logger
 
+# Import validation models from existing files (for validation)
 from src.app.models.get_leave_balance_args import GetLeaveBalanceArgs
 from src.app.models.submit_leave_balance_args import SubmitLeaveRequestArgs
 from src.app.models.get_leave_history_args import GetLeaveHistoryArgs
