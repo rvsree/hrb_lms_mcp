@@ -40,7 +40,7 @@ setup_logging(level=log_level, use_colors=True, component_levels=component_level
 logger = get_logger("app_main")
 
 if log_level <= logging.INFO:
-    logger.info(f"HRB Employee LMS MCP Server - Environ: {environ}, Log level: {logging.getLevelName(log_level)}")
+    #logger.info(f"HRB Employee LMS MCP Server - Environ: {environ}, Log level: {logging.getLevelName(log_level)}")
     logger.info("HRB Employee LMS MCP Server initialized with Pure FastMCP (streamable-http)")
 
 

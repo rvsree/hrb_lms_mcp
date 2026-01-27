@@ -30,8 +30,8 @@ mcp = FastMCP("lms")
 mcp.settings.stateless_http = True
 mcp.settings.json_response = True
 
-if logging.getLogger().isEnabledFor(logging.INFO):
-    logger.info("[MCP] FastMCP server initialized - stateless_http=True, json_response=True")
+# if logging.getLogger().isEnabledFor(logging.INFO):
+#     logger.info("[MCP] FastMCP server initialized - stateless_http=True, json_response=True")
 
 
 class MCPRequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -130,8 +130,8 @@ def create_mcp_app():
     # Mount health app at /hrb_emp_lms/health
     app.mount("/hrb_emp_lms/health", health_app)
     
-    if logging.getLogger().isEnabledFor(logging.INFO):
-        logger.info("[MCP] FastMCP streamable HTTP app created with logging middleware and health endpoints")
+    # if logging.getLogger().isEnabledFor(logging.INFO):
+    #     logger.info("[MCP] FastMCP streamable HTTP app created with logging middleware and health endpoints")
     
     return app
 
