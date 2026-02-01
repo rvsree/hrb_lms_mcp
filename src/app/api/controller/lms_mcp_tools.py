@@ -103,7 +103,9 @@ def submit_leave_request(
     
     Args:
         employee_id: Employee ID
-        leave_type: Leave type (PTO, SICK, UNPAID, etc.)
+        leave_type: Leave type code. MUST be one of: "PTO" (Paid Time Off - for vacation, personal time), 
+                    "SICK" (Sick Leave - for illness, medical appointments, surgery recovery).
+                    Do NOT use "MEDICAL", "VACATION", or other types - they will fail.
         start_date: Start date (YYYY-MM-DD)
         end_date: End date (YYYY-MM-DD)
         reason: Reason for leave (optional)
