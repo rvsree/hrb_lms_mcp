@@ -1,8 +1,11 @@
 -- ============================================================================
 -- LEAVE MANAGEMENT SERVICE - DATABASE SETUP
 -- Complete database schema and sample data
--- Database: hr_chatbot (PostgreSQL)
 -- Schema: hrb_emp_lms
+-- Database name is whatever POSTGRES_DB_NAME points at - "hr_chatbot"
+-- locally, "HR_Benefits" (a Neon-hosted Postgres shared with the
+-- hrb_chatbot_v2 sibling project) in production. The schema name is the
+-- same either way. See README.md's Environments table.
 -- ============================================================================
 
 -- ============================================================================

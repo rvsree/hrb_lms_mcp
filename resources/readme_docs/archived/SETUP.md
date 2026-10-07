@@ -37,7 +37,7 @@ POSTGRES_DB_HOST=localhost
 POSTGRES_DB_PORT=5432
 POSTGRES_DB_NAME=coco
 POSTGRES_DB_USER=postgres
-POSTGRES_DB_PASSWORD=Igates_71
+POSTGRES_DB_PASSWORD=<your-local-postgres-password>
 
 # Server Configuration
 SERVER_PORT=8081

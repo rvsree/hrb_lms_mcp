@@ -154,13 +154,18 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 ### PII and Security Considerations
 
 - **PII Handling**: Employee IDs, leave balances, personal information stored in database
-- **Data Encryption**: 
+- **Data Encryption**:
   - In transit: TLS/HTTPS for all API calls
-  - At rest: RDS encryption enabled
-- **Access Control**: 
-  - API key authentication (`X-API-Key` header)
+  - At rest: handled by Neon (the managed Postgres provider), not by anything this
+    project configures itself
+- **Access Control**:
+  - OAuth2 client-credentials (`POST /oauth/token` issues a Bearer JWT, required on
+    every `POST /mcp` call via `BearerAuthMiddleware`) - the `X-API-Key` header
+    mentioned elsewhere in this doc as a design precursor was never actually
+    enforced and has been fully replaced by this
   - Employee ID validation
-  - Role-based access (employee vs manager)
+  - Role-based access (employee vs manager) - handled by the manager_id hierarchy
+    in `hrb_emp_lms.employees`, a different concern from OAuth2 client scopes
 - **Audit Logging**: All tool calls logged with correlation IDs
 - **Data Retention**: Per company policy and compliance requirements
 
@@ -168,43 +173,37 @@ The HRB Employee Assistant (`hrb_emp_assist`) needs access to real-time operatio
 
 ## Environments
 
-### Local Development
-- **Purpose**: Local development and testing
-- **Database**: Local PostgreSQL or Docker container
-- **Port**: 8080
-- **Configuration**: `application.yml`, `application-local.yml`
-- **Secrets**: Local properties file (not committed)
+This project has exactly **two** real environments - no dev/staging tier exists,
+and never has. For reference, here's where all three related applications live
+(this server is only ever called by `hrb_chatbot_v2`'s backend, never directly
+by the `hrb_chatbot_ui` frontend):
 
-### Development (AWS)
-- **Purpose**: Shared development environment
-- **Database**: RDS PostgreSQL (dev instance)
-- **Deployment**: ECS Fargate (dev cluster)
-- **Configuration**: AWS Parameter Store, Secrets Manager
-- **Secrets**: AWS Secrets Manager (`hrb-lms-mcp/dev/*`)
+| App | Local | AWS (production) |
+| --- | --- | --- |
+| **This repo** (`hrb_lms_mcp`) | `http://127.0.0.1:8190` | `https://hrb-lms-mcp.rvsree.dev` |
+| Backend (`hrb_chatbot_v2`) | `http://127.0.0.1:8093` | `https://hrb-chatbot.rvsree.dev` |
+| Frontend (`hrb_chatbot_ui`) | `http://localhost:5173` | `https://hrb-chatbot-ui.rvsree.dev` |
 
-### Staging
-- **Purpose**: Pre-production testing
-- **Database**: RDS PostgreSQL (staging instance, Multi-AZ)
-- **Deployment**: ECS Fargate (staging cluster)
-- **Configuration**: AWS Parameter Store, Secrets Manager
-- **Secrets**: AWS Secrets Manager (`hrb-lms-mcp/staging/*`)
+Detail for this repo specifically:
 
-### Production
-- **Purpose**: Live production environment
-- **Database**: RDS PostgreSQL (production, Multi-AZ, automated backups)
-- **Deployment**: ECS Fargate (production cluster, auto-scaling)
-- **Configuration**: AWS Parameter Store, Secrets Manager
-- **Secrets**: AWS Secrets Manager (`hrb-lms-mcp/prod/*`), rotated quarterly
+| | Local | AWS (production) |
+| --- | --- | --- |
+| **URL** | `http://127.0.0.1:8190` | `https://hrb-lms-mcp.rvsree.dev` |
+| **Deployment** | `uvicorn src.app.api.main:app --host 127.0.0.1 --port 8190` | AWS App Runner (one service, no ECS/Fargate, no staging tier, no Multi-AZ) |
+| **Database** | Local Postgres, database `hr_chatbot` | Neon-hosted Postgres, database `HR_Benefits` - **the same database `hrb_chatbot_v2` uses**, just different schemas (`hrb_emp_lms`, `hrb_lms_mcp_auth`) |
+| **Secrets** | `.env` (gitignored) | AWS Secrets Manager (`hrb-lms-mcp/JWT_SECRET_KEY`, plus the shared `hrb-chatbot/POSTGRES_DB_*` secrets reused read-only) |
+| **CI/CD** | n/a | `.github/workflows/deploy.yml` - push to this repo's working branch builds, pushes to ECR, and redeploys App Runner |
 
-### Configuration Differences
+Deployed 2026-10-07 (see `hrb_chatbot_v2`'s `docs/agent-reference/RAG-ROADMAP.md`
+Phase 118 for the full story, including a real DNS-rebinding bug found and fixed
+along the way - `FastMCP`'s default Host-header allowlist only accepts
+`localhost`/`127.0.0.1`, which rejected every real deployed hostname with a 421
+until `mcp_server.py` explicitly disabled it).
 
-| Setting | Local | Dev | Staging | Prod |
-|---------|-------|-----|---------|------|
-| Log Level | DEBUG | INFO | INFO | WARNING |
-| Database | localhost | RDS (t3.small) | RDS (t3.medium) | RDS (t3.large) |
-| Port | 8080 | 8080 (ALB) | 8080 (ALB) | 8080 (ALB) |
-| API Key | local-key | Dev key | Staging key | Prod key (rotated) |
-| Connection Pool | 10 | 20 | 50 | 100 |
+The table in the old version of this doc (Local/Dev/Staging/Prod, ECS Fargate,
+RDS Multi-AZ, quarterly-rotated Secrets Manager paths per tier) described a
+target architecture that was never built - removed 2026-10-07 rather than left
+to mislead whoever reads this next.
 
 ---
 
@@ -386,47 +385,33 @@ curl -X POST http://localhost:8190/mcp \
 
 ## Ownership & Operations
 
-### Infrastructure Ownership
+This is a solo-developer capstone/portfolio project, not a team-owned service -
+there's no separate platform team, on-call rotation, or change-request process.
+Noted here plainly since an earlier version of this doc described one as if it
+existed.
 
-- **AWS Infrastructure**: DevOps/Platform Team
-  - ECS clusters, RDS instances, ALB, VPC, security groups
-  - Secrets Manager, Parameter Store
-  - CloudWatch logs and metrics
+- **Everything** (code, AWS infra, database schema) - one person, changes go
+  through a real GitHub PR into this repo's own working branch, then
+  `deploy.yml` builds/pushes/redeploys on merge.
+- **AWS infra changes** (ECR repo, IAM roles, App Runner service, Secrets
+  Manager entries, the custom domain) were provisioned by hand via the AWS CLI,
+  not Terraform/CDK - see `hrb_chatbot_v2`'s `docs/agent-reference/RAG-ROADMAP.md`
+  Phase 118 for the exact commands and reasoning.
+- **Database schema changes**: hand-run SQL files in `resources/db_scripts/`
+  (`database-setup.sql`, `db-script-sample-data.sql`, `oauth_schema.sql`,
+  `oauth_sample_data.sql`) - no migration framework, `CREATE ... IF NOT EXISTS`
+  throughout so they're safe to re-run.
 
-- **Application Code**: Development Team
-  - Feature development, bug fixes
-  - MCP tool implementations
-  - Database schema changes
-
-### Change Management
-
-- **Code Changes**: 
-  - Feature branches → PR → Code review → Merge to `main`
-  - Automated tests must pass
-  - Deployment via GitHub Actions to dev/staging/prod
-
-- **Infrastructure Changes**:
-  - Terraform/CDK changes require platform team approval
-  - Changes to production require change request
-
-- **Database Changes**:
-  - Migration scripts in `src/main/resources/db/migration/`
-  - Test migrations in dev/staging before production
-
-### Support & Runbooks
-
-**Entry Points**:
-- **Application Issues**: Check CloudWatch logs (`/ecs/hrb-lms-mcp`)
-- **Database Issues**: Check RDS metrics, connection pool status
-- **MCP Protocol Issues**: Verify JSON-RPC compliance, check request/response logs
-
-**Common Runbooks**:
-- **Service Unhealthy**: Check health endpoint, review logs, verify database connectivity
-- **High Latency**: Check database query performance, connection pool exhaustion
-- **MCP Protocol Errors**: Verify JSON-RPC format, check tool implementations
-- **Database Connection Issues**: Check RDS endpoint, security groups, connection pool settings
-
-**On-Call Rotation**: Development team (primary), Platform team (escalation)
+**If something's actually broken**:
+- Health: `GET /hrb_emp_lms/health/app` (process up) and
+  `GET /hrb_emp_lms/health/postgres` (real DB round-trip) - both on the same
+  URL (local or AWS) from the Environments table above.
+- Logs: CloudWatch log group `/aws/apprunner/hrb-lms-mcp/<service-id>/application`
+  (production) or the terminal running `uvicorn` (local).
+- OAuth2 failures: a 401 from `/mcp` means a missing/expired/invalid Bearer
+  token - get a fresh one from `/oauth/token` first. A 421 means the
+  DNS-rebinding Host check regressed somehow (see `mcp_server.py`'s own
+  comment on `transport_security` - should stay disabled).
 
 ---
 
@@ -606,10 +591,16 @@ This project uses **Pure FastMCP** (no FastAPI wrapper):
 
 ### Dependencies
 
-- `mcp>=1.2.0`: FastMCP SDK
+- `mcp>=1.2.0,<2`: FastMCP SDK (pinned below 2.x - see requirements.txt's own
+  comment, v2 renamed `FastMCP` to `MCPServer` and changed its import path)
 - `uvicorn[standard]>=0.24.0`: ASGI server
 - `sqlalchemy>=2.0.23`: ORM
 - `pydantic>=2.5.0`: Validation
-- `psycopg2-binary>=2.9.9`: PostgreSQL driver
+- `psycopg[binary]>=3.1`: PostgreSQL driver (psycopg v3, not psycopg2 -
+  `postgres_db_client.py` uses psycopg v3's own API)
+- `pyjwt[crypto]`: OAuth2 Bearer JWT issuing/verification
 
-**Note**: FastAPI and Starlette are NOT required for FastMCP (FastMCP uses Starlette internally).
+**Note**: FastAPI is NOT required - the one place that used to need it
+(`src/app/api/admin/health.py`) was dead code, deleted 2026-10-07; the real
+health endpoints live in `mcp_server.py`'s own Starlette routes (FastMCP uses
+Starlette internally regardless).

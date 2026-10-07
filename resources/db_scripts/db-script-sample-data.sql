@@ -2,8 +2,8 @@
 -- LEAVE MANAGEMENT SERVICE - SAMPLE DATA
 -- ============================================================================
 -- Purpose: Insert sample data for testing and development
--- Database: hr_chatbot (PostgreSQL)
--- Schema: hrb_emp_lms
+-- Schema: hrb_emp_lms (database name varies by environment - see
+-- database-setup.sql's own header)
 -- ============================================================================
 -- 
 -- IMPORTANT: 

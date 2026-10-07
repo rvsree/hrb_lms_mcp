@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     postgres_db_port: int = int(os.getenv("POSTGRES_DB_PORT", "5432"))
     postgres_db_name: str = os.getenv("POSTGRES_DB_NAME", "coco")
     postgres_db_user: str = os.getenv("POSTGRES_DB_USER", "postgres")
-    postgres_db_password: str = os.getenv("POSTGRES_DB_PASSWORD", "Igates_71")
+    # No hardcoded fallback (was a real password, found committed in cleartext
+    # 2026-10-07 during a cleanup pass - removed, not rotated here, since this
+    # app doesn't own the Postgres instance). A missing POSTGRES_DB_PASSWORD
+    # now fails the connection loudly instead of silently reusing that value.
+    postgres_db_password: str = os.getenv("POSTGRES_DB_PASSWORD", "")
     
     # Server
     server_port: int = int(os.getenv("SERVER_PORT", "8081"))

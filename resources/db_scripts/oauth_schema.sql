@@ -8,7 +8,9 @@
 -- sibling project's schema: this is a capstone/portfolio project, not a
 -- production system with a data-integrity SLA that needs DB-enforced FKs.
 --
--- Run as: psql -d hr_chatbot -f oauth_schema.sql
+-- Run as: psql -d <your POSTGRES_DB_NAME> -f oauth_schema.sql
+-- (already applied to production's Neon database, 2026-10-07 - see
+-- hrb_chatbot_v2's RAG-ROADMAP.md Phase 118)
 
 CREATE SCHEMA IF NOT EXISTS hrb_lms_mcp_auth;
 
