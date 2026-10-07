@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # Server
     server_port: int = int(os.getenv("SERVER_PORT", "8081"))
     api_key: str = os.getenv("API_KEY", "default-api-key")
+
+    # OAuth2 client-credentials (2026-09-22) - signs/verifies /oauth/token
+    # JWTs, replaces the never-actually-enforced api_key above for /mcp.
+    jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "")
+    jwt_access_token_expire_minutes: int = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     
     # Environment
     environ: str = os.getenv("APP_ENVIRON", "dev")  # dev or release

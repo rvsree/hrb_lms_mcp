@@ -12,10 +12,13 @@ The FastMCP server is configured for:
 
 import json
 import logging
+import jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from mcp.server.fastmcp import FastMCP
+from src.app.common.auth.token_service import create_access_token, verify_client_credentials
 from src.app.common.config.app_logging import get_logger
 
 logger = get_logger("mcp_server")
@@ -74,6 +77,58 @@ class MCPRequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class BearerAuthMiddleware(BaseHTTPMiddleware):
+    """Rejects POST /mcp requests with no valid Bearer JWT (2026-09-22) -
+    replaces the X-API-Key check that was configured but never actually
+    enforced anywhere in this codebase. /oauth/token and the health
+    endpoints stay open - a client needs to call /oauth/token before it
+    has a token to present."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "POST" and request.url.path == "/mcp":
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return JSONResponse({"error": "Missing Bearer token"}, status_code=401)
+
+            token = auth_header.removeprefix("Bearer ")
+            try:
+                jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
+            except jwt.ExpiredSignatureError:
+                return JSONResponse({"error": "Token expired"}, status_code=401)
+            except jwt.PyJWTError:
+                return JSONResponse({"error": "Invalid token"}, status_code=401)
+
+        return await call_next(request)
+
+
+def _jwt_secret() -> str:
+    from src.app.common.config.config import settings
+    return settings.jwt_secret_key
+
+
+async def issue_token(request: Request):
+    """POST /oauth/token - client_credentials grant. Body:
+    {"client_id": "...", "client_secret": "..."}."""
+    body = await request.json()
+    client_id = body.get("client_id")
+    client_secret = body.get("client_secret")
+
+    if not client_id or not client_secret:
+        return JSONResponse({"error": "client_id and client_secret are required"}, status_code=400)
+
+    scopes = verify_client_credentials(client_id, client_secret)
+    if scopes is None:
+        return JSONResponse({"error": "invalid_client"}, status_code=401)
+
+    access_token, expires_in = create_access_token(client_id, scopes)
+    return JSONResponse({
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": expires_in,
+        "scope": " ".join(scopes),
+    })
+
+
 def create_mcp_app():
     """
     Create and configure the FastMCP streamable HTTP app.
@@ -92,11 +147,15 @@ def create_mcp_app():
     
     # Add request logging middleware for observability
     app.add_middleware(MCPRequestLoggingMiddleware)
-    
+
+    # Bearer-token auth on /mcp (2026-09-22) - added after (so it runs
+    # before, Starlette middleware order) the logging middleware, so an
+    # unauthenticated request is rejected before its body is even logged.
+    app.add_middleware(BearerAuthMiddleware)
+
     # Mount health endpoints using Starlette's mount functionality
     # Since FastMCP uses Starlette, we can mount a separate app for health checks
     from starlette.applications import Starlette
-    from starlette.responses import JSONResponse
     from starlette.routing import Route
     from src.app.common.providers_client.db_client.postgres_db_client import postgres_health_check
     
@@ -129,6 +188,11 @@ def create_mcp_app():
     
     # Mount health app at /hrb_emp_lms/health
     app.mount("/hrb_emp_lms/health", health_app)
+
+    # Mount the OAuth2 token endpoint - open, no auth required to reach it
+    # (a client needs a token from here before it has one to present).
+    oauth_app = Starlette(routes=[Route("/token", issue_token, methods=["POST"])])
+    app.mount("/oauth", oauth_app)
     
     # if logging.getLogger().isEnabledFor(logging.INFO):
     #     logger.info("[MCP] FastMCP streamable HTTP app created with logging middleware and health endpoints")

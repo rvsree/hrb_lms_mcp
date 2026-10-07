@@ -105,6 +105,23 @@ INSERT INTO hrb_emp_lms.employees (employee_id, name, email, department, manager
 ('EMP050', 'Rachel Rogers', 'rachel.rogers@company.com', 'Engineering', (SELECT id FROM hrb_emp_lms.employees WHERE employee_id = 'MGR001' LIMIT 1), '2023-11-15', 'PART_TIME')
 ON CONFLICT (employee_id) DO NOTHING;
 
+-- Insert hrb_chatbot_v2 integration identities (added 2026-09-22, EMP053
+-- added 2026-10-07). MGR006 matches that project's still-unwired
+-- `hrb_chatbot_v2_core` OAuth2 *design* tables (resources/db_scripts/
+-- oauth/oauth_sample_data_dml.sql); EMP051/EMP052/EMP053 match the real,
+-- live login roster that project actually uses today
+-- (common/known_personas.py, Phase 106) - EMP053/"Mia Manager" was found
+-- missing here while wiring up real AWS MCP connectivity (hrb_chatbot_v2's
+-- RAG-ROADMAP.md Phase 118), added now so all 3 real personas resolve
+-- consistently on both sides. Not the same database (a real cross-
+-- database FK isn't possible), just the same identity by convention.
+INSERT INTO hrb_emp_lms.employees (employee_id, name, email, department, manager_id, hire_date, employment_type) VALUES
+('MGR006', 'Mona Manager', 'mona.manager@company.com', 'Sales', NULL, '2020-09-01', 'FULL_TIME'),
+('EMP051', 'Hana Support', 'hana.support@company.com', 'HR', (SELECT id FROM hrb_emp_lms.employees WHERE employee_id = 'MGR003' LIMIT 1), '2022-08-15', 'FULL_TIME'),
+('EMP052', 'Eddy Employee', 'eddy.employee@company.com', 'Engineering', (SELECT id FROM hrb_emp_lms.employees WHERE employee_id = 'MGR001' LIMIT 1), '2023-02-01', 'FULL_TIME'),
+('EMP053', 'Mia Manager', 'mia.manager@company.com', 'Operations', NULL, '2021-07-01', 'FULL_TIME')
+ON CONFLICT (employee_id) DO NOTHING;
+
 -- Insert Leave Balances for 2025 (including test employees)
 INSERT INTO hrb_emp_lms.leave_balances (employee_id, leave_type_id, accrued, used, year) 
 SELECT 
