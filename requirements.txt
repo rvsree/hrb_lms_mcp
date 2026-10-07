@@ -1,9 +1,21 @@
 fastapi>=0.115.0
 starlette>=0.36.0
-mcp>=1.2.0
+# Pinned <2 (2026-10-07, found building this project's first Dockerfile):
+# mcp 2.x renamed FastMCP to MCPServer and changed its import path -
+# mcp_server.py still uses `from mcp.server.fastmcp import FastMCP`
+# (v1 API). A fresh `pip install -r requirements.txt` resolved mcp==2.3.0
+# and broke that import entirely; the long-lived local .venv had mcp==
+# 1.25.0 already installed, masking this until a clean build caught it.
+mcp>=1.2.0,<2
 uvicorn[standard]>=0.24.0
 sqlalchemy>=2.0.23
-psycopg2-binary>=2.9.9
+# psycopg2-binary was listed here but never actually imported anywhere in
+# src/ (found 2026-10-07 building this project's first Dockerfile, where
+# a fresh install surfaced it) - postgres_db_client.py uses psycopg v3's
+# own API (`from psycopg.rows import dict_row`), not psycopg2 at all. The
+# long-lived local .venv had psycopg installed separately, outside this
+# file, masking the real missing dependency until a clean build caught it.
+psycopg[binary]>=3.1
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 python-dotenv>=1.0.0

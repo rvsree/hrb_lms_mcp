@@ -1,0 +1,74 @@
+name: Deploy
+
+# Only master triggers this - mirrors hrb_chatbot_v2's own deploy.yml
+# (sibling project, same AWS account). The AWS credentials this job uses
+# belong to hrb-lms-mcp-github-actions-deploy, a dedicated IAM user
+# scoped to only this repo's ECR repository and App Runner service -
+# never the admin identity used to provision the service by hand.
+on:
+  push:
+    branches: ["master", "main", "lms_mcp_tools_standardized_v4"]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: 418884736369.dkr.ecr.us-east-1.amazonaws.com/hrb-lms-mcp
+  APP_RUNNER_SERVICE_ARN: arn:aws:apprunner:us-east-1:418884736369:service/hrb-lms-mcp/046c4acf8c3648cb9d5de289d5914dd3
+  APP_RUNNER_URL: https://munp3zn43b.us-east-1.awsapprunner.com
+
+jobs:
+  build-and-deploy:
+    name: Build, push, and deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY }}
+
+      - name: Build image
+        # Same three flags hrb_chatbot_v2's own deploy.yml found
+        # load-bearing for App Runner (see its RAG-ROADMAP.md Phase 10) -
+        # an attestation manifest or OCI-format manifest both
+        # independently make App Runner pull successfully and then
+        # silently never start the container.
+        run: |
+          docker buildx build \
+            --provenance=false --sbom=false \
+            --output type=image,name=${{ env.ECR_REPOSITORY }}:latest,oci-mediatypes=false,push=true \
+            .
+
+      - name: Trigger App Runner deployment
+        run: |
+          aws apprunner start-deployment --service-arn "${{ env.APP_RUNNER_SERVICE_ARN }}"
+
+      - name: Wait for the new deployment to actually reach RUNNING
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "${{ env.APP_RUNNER_SERVICE_ARN }}" \
+              --query "Service.Status" --output text)
+            echo "App Runner status: $STATUS (check $i/30)"
+            if [ "$STATUS" = "RUNNING" ]; then
+              exit 0
+            fi
+            if [ "$STATUS" != "OPERATION_IN_PROGRESS" ]; then
+              echo "::error::App Runner reported unexpected status '$STATUS' - deployment did not reach RUNNING"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out waiting for App Runner to reach RUNNING after 5 minutes"
+          exit 1
+
+      - name: Deployment smoke test - the new container actually answers
+        run: |
+          curl --fail --silent --show-error "${{ env.APP_RUNNER_URL }}/hrb_emp_lms/health/app"
