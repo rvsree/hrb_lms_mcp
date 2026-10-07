@@ -18,6 +18,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from src.app.common.auth.token_service import create_access_token, verify_client_credentials
 from src.app.common.config.app_logging import get_logger
 
@@ -25,7 +26,23 @@ logger = get_logger("mcp_server")
 
 # Initialize FastMCP server instance
 # This is the central MCP server instance that will be used by all tools
-mcp = FastMCP("lms")
+#
+# transport_security: FastMCP's constructor auto-enables DNS rebinding
+# protection (Host-header allowlisting) whenever its own `host` param
+# defaults to "127.0.0.1" - which it does here, since main.py binds
+# uvicorn to 0.0.0.0 directly and never tells FastMCP that. That
+# allowlist only ever contains localhost/127.0.0.1, so any real deployed
+# hostname (the raw *.awsapprunner.com URL, or a custom domain) gets
+# rejected with 421 "Invalid Host header" - found 2026-10-07 wiring real
+# AWS connectivity (see hrb_chatbot_v2's RAG-ROADMAP.md Phase 118).
+# DNS-rebinding protection exists to stop a malicious website's browser
+# JS from reaching a local-only dev server via a rebound DNS name - not a
+# concern for this server, which is never localhost-only in any real
+# environment and already requires a real Bearer JWT (BearerAuthMiddleware
+# below) on every /mcp call. Disabled explicitly rather than guessing at
+# an allowed_hosts list that would need updating every time this server
+# gets a new domain.
+mcp = FastMCP("lms", transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
 
 # Configure FastMCP for stateless HTTP and JSON responses
 # Stateless mode: No session ID required, creates new transport per request
