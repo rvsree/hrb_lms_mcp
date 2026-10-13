@@ -70,6 +70,10 @@ class LeaveType(Base):
     accrual_rate = Column(Numeric(5, 2))
     max_carryover = Column(Integer)
     requires_approval = Column(Boolean, default=True, nullable=False)
+    # Phase 165 - separate from requires_approval, which means "needs a
+    # manager". UNPAID/CRITICAL_CAREGIVER/STD/LTD all set this true - a
+    # human HR specialist reviews these via the HITL flow, never a manager.
+    requires_specialist_review = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -155,6 +159,77 @@ class HitlRequest(Base):
     responded_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
+
     # Relationships
     employee = relationship("Employee")
+
+
+class LeaveReviewDecision(enum.Enum):
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class UnpaidLeaveDocument(Base):
+    """Phase 165 - the manifest for a leave request's supporting document(s).
+    leave_request_id is nullable on purpose: the employee-facing upload flow
+    uploads to S3 before the leave request exists (confirmed by reading
+    hrb_chatbot_ui's UnpaidLeaveModal.tsx directly), so this row is created
+    at upload time (leave_request_id still null) and linked once submit
+    actually creates the leave request - otherwise a failed submit after a
+    successful upload leaves a real S3 object with nothing in any database
+    pointing at it, a real silent-orphan bug, not a hypothetical one."""
+    __tablename__ = "unpaid_leave_documents"
+    __table_args__ = {"schema": "hrb_emp_lms"}
+
+    id = Column(Integer, primary_key=True, index=True)
+    s3_key = Column(String(512), unique=True, nullable=False, index=True)
+    leave_request_id = Column(Integer, ForeignKey("hrb_emp_lms.leave_requests.id"), nullable=True, index=True)
+    original_filename = Column(String(255), nullable=False)
+    content_type = Column(String(100))
+    uploaded_at = Column(DateTime, server_default=func.now())
+
+    leave_request = relationship("LeaveRequest")
+
+
+class SpecialistLeaveReview(Base):
+    """Phase 165 - the full HITL review lifecycle for a leave request that
+    needs specialist review (requires_specialist_review=True leave types),
+    with real typed columns instead of overloading hitl_requests.assigned_to
+    with a name string the way the pre-Phase-165 flow did. Covers all such
+    leave types, not just unpaid - deliberately not named "unpaid_leave_*".
+    "Elapsed time" is deliberately not a column here - it's
+    responded_at - created_at (or now() - created_at while still pending),
+    computed by the caller at read time, so it can never go stale."""
+    __tablename__ = "specialist_leave_reviews"
+    __table_args__ = {"schema": "hrb_emp_lms"}
+
+    id = Column(Integer, primary_key=True, index=True)
+    hitl_request_id = Column(Integer, ForeignKey("hrb_emp_lms.hitl_requests.id"), nullable=False, index=True)
+    leave_request_id = Column(Integer, ForeignKey("hrb_emp_lms.leave_requests.id"), nullable=False, index=True)
+    leave_type_code = Column(String(50), nullable=False)
+    status = Column(SQLEnum(HitlRequestStatus), default=HitlRequestStatus.PENDING, nullable=False)
+    decision = Column(SQLEnum(LeaveReviewDecision), nullable=True)
+    hr_specialist_employee_id = Column(Integer, ForeignKey("hrb_emp_lms.employees.id"), nullable=True)
+    hr_comments = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    responded_at = Column(DateTime, nullable=True)
+    # Phase 172 - A2A-shaped vocabulary, additive alongside `status` above
+    # (left unchanged, still PENDING/COMPLETED - every existing caller of
+    # it keeps working). task_state is the real Task lifecycle value
+    # (submitted/working/input_required/completed/rejected) this project's
+    # own agent graph tracks - "submitted"/"working" only ever hold true
+    # transiently inside one synchronous request before this row is first
+    # written, so only input_required/completed/rejected are ever actually
+    # persisted here. review_brief is the specialist-facing LLM-generated
+    # summary (the "Review-support agent" the original design called for).
+    # decision_message/produced_artifacts are plain JSON, not a real A2A
+    # wire payload - Message/Parts and Artifact *shaped*, for this
+    # project's own internal use, not interop with another A2A server.
+    task_state = Column(String(20), nullable=False, default="input_required")
+    review_brief = Column(Text, nullable=True)
+    decision_message = Column(JSON, nullable=True)
+    produced_artifacts = Column(JSON, nullable=True)
+
+    hitl_request = relationship("HitlRequest")
+    leave_request = relationship("LeaveRequest")
+    hr_specialist = relationship("Employee")
