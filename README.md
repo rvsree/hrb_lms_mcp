@@ -3,18 +3,26 @@
 Leave Management MCP server for the HRB chatbot platform - real-time leave
 balance/history/approval data that can't come from the RAG knowledge base
 (policy documents), served to `hrb_chatbot_service` over the Model Context
-Protocol with real app-to-app OAuth2, not a static document.
+Protocol with app-to-app OAuth2, not a static document.
 
 ## For reviewers / new team members (5 minutes)
 
-1. Run it locally (below) and hit the real health endpoint.
+1. Run it locally (below) and hit the health endpoint.
 2. The Environments and MCP tools tables below - what's actually deployed,
    what's actually callable.
-3. [Security](#security) - the real OAuth2 flow, and what it replaced.
+3. [Security](#security) - the OAuth2 flow, and what it replaced.
 4. No architecture diagrams exist for this repo yet, unlike the other 7 -
    a real gap, not an oversight; see `hrb_chatbot_service`'s own
    `docs/agent-reference/RAG-ROADMAP.md` Phase 118 for the deployment
    story instead.
+
+## Live demo
+
+Not directly browsable - this answers "what's my leave balance?"/"show my
+leave history" questions asked at
+**[hrb-chatbot-ui.rvsree.dev](https://hrb-chatbot-ui.rvsree.dev)**, called
+over MCP by `hrb_chatbot_service`. Log in as any employee persona and ask
+either question to see it hit real Postgres data, not a static document.
 
 ## What this is
 
@@ -31,7 +39,7 @@ real Postgres database via SQLAlchemy, not mocked.
 
 ## Environments
 
-This project has exactly **two** real environments - no dev/staging tier
+This project has exactly **two** environments - no dev/staging tier
 exists, and never has.
 
 | App | Local | AWS (production) |
@@ -50,10 +58,10 @@ directly by the `hrb_chatbot_ui` frontend.
 | **Secrets** | `.env` (gitignored) | AWS Secrets Manager (`hrb-lms-mcp/JWT_SECRET_KEY`, plus the shared `hrb-chatbot/POSTGRES_DB_*` secrets reused read-only) |
 | **CI/CD** | n/a | `.github/workflows/deploy.yml` - push to this repo's working branch builds, pushes to ECR, and redeploys App Runner |
 
-Deployed 2026-10-07. One real bug found and fixed along the way: FastMCP's
-default Host-header allowlist only accepts `localhost`/`127.0.0.1`, which
-rejected every real deployed hostname with a 421 until `mcp_server.py`
-explicitly disabled `transport_security`.
+Deployed 2026-10-07. One bug surfaced along the way and got fixed in the
+same pass: FastMCP's default Host-header allowlist only accepts
+`localhost`/`127.0.0.1`, which rejected every deployed hostname with a 421
+until `mcp_server.py` explicitly disabled `transport_security`.
 
 ## Quick start
 
@@ -64,7 +72,7 @@ curl http://127.0.0.1:8190/hrb_emp_lms/health/app
 ```
 
 `GET /hrb_emp_lms/health/app` confirms the process is up; `GET
-/hrb_emp_lms/health/postgres` additionally confirms a real DB round-trip.
+/hrb_emp_lms/health/postgres` additionally confirms a DB round-trip.
 
 Local database setup: create a Postgres database (default name
 `hr_chatbot`), then run `resources/db_scripts/database-setup.sql` and
@@ -83,7 +91,7 @@ Local database setup: create a Postgres database (default name
 
 Protocol: JSON-RPC 2.0 over HTTP, FastMCP streamable-http transport,
 stateless (no session ID), endpoint `POST /mcp`. Tools are discovered at
-runtime via `tools/list`; `hrb_chatbot_service` is the real MCP client.
+runtime via `tools/list`; `hrb_chatbot_service` is the only MCP client today.
 
 ## Security
 
@@ -121,7 +129,7 @@ needs the deferred human-to-app OAuth2 work, not a change here.
 ## If something's broken
 
 - Health: `GET /hrb_emp_lms/health/app` (process up), `GET
-  /hrb_emp_lms/health/postgres` (real DB round-trip) - both on the URL
+  /hrb_emp_lms/health/postgres` (DB round-trip) - both on the URL
   from the Environments table above.
 - Logs: CloudWatch log group `/aws/apprunner/hrb-lms-mcp/<service-id>/application`
   (production), or the terminal running `uvicorn` (local).
