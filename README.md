@@ -98,6 +98,16 @@ Role-based access (employee vs. manager) is handled separately, by the
 `manager_id` hierarchy in `hrb_emp_lms.employees` - a different concern
 from OAuth2 client scopes, not a second auth layer.
 
+**Known gap, not yet fixed:** OAuth2 here authenticates the *calling app*
+(`hrb_chatbot_service`), not the end user. The `employee_id` a tool call
+acts on comes from the caller's request body, self-asserted the same way
+identity is self-asserted everywhere else in this platform (see the
+parent platform's own documented decision to defer human-to-app OAuth2).
+In practice this means any authenticated caller can currently ask for any
+`employee_id`'s leave balance or history - there's no check that the
+`employee_id` in the request matches who's actually asking. Fixing this
+needs the deferred human-to-app OAuth2 work, not a change here.
+
 ## Tech stack
 
 | Layer | What's actually used |
