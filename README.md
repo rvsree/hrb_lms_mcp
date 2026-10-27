@@ -118,6 +118,36 @@ needs the deferred human-to-app OAuth2 work, not a change here.
 
 ## Tech stack
 
+```mermaid
+flowchart TD
+    HUB((hrb_lms_mcp))
+    HUB --> FW[Framework]
+    HUB --> TR[Transport]
+    HUB --> DATA[Data]
+    HUB --> AUTH[Auth]
+    HUB --> DEP[Deployment]
+
+    FW --> FW1[FastMCP]
+    TR --> T1[streamable-http]
+    DATA --> D1[SQLAlchemy]
+    DATA --> D2[psycopg v3]
+    AUTH --> A1[pyjwt / OAuth2]
+    DEP --> P1[AWS App Runner]
+
+    classDef hub fill:#4C1D95,color:#fff,stroke:#2E1065,stroke-width:2px
+    classDef fw fill:#1D4ED8,color:#fff,stroke:#1E3A8A
+    classDef tr fill:#047857,color:#fff,stroke:#064E3B
+    classDef data fill:#B45309,color:#fff,stroke:#78350F
+    classDef auth fill:#BE185D,color:#fff,stroke:#831843
+    classDef dep fill:#475569,color:#fff,stroke:#1E293B
+    class HUB hub
+    class FW,FW1 fw
+    class TR,T1 tr
+    class DATA,D1,D2 data
+    class AUTH,A1 auth
+    class DEP,P1 dep
+```
+
 | Layer | What's actually used |
 |---|---|
 | Framework | Pure FastMCP (`mcp>=1.2.0,<2` - pinned below 2.x; v2 renamed `FastMCP` to `MCPServer` and changed its import path) |
